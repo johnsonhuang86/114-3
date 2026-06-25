@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CMYK 取色器與色域圖</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .content-wrapper {
+            display: flex;
+            flex-direction: row;
+            gap: 2rem;
+            flex-grow: 1;
+            height: calc(100vh - 150px);
+        }
+
+        .panel {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .left-panel {
+            flex: 1;
+            max-width: 50%;
+        }
+
+        .right-panel {
+            flex: 1;
+            max-width: 50%;
+            position: relative;
+        }
+
+        .canvas-container {
+            flex-grow: 1;
+            border: 2px dashed #d1d5db;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f9fafb;
+            cursor: crosshair;
+        }
+
+        #imageCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .placeholder-text {
+            position: absolute;
+            color: #6b7280;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .color-info-card {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .color-preview {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 2px solid #cbd5e1;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+            background-color: #fff;
+            transition: background-color 0.2s ease;
+        }
+
+        .color-values {
+            flex-grow: 1;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.5rem;
+        }
+
+        .value-box {
+            background: white;
+            padding: 0.5rem;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        
+        .value-box strong {
+            color: #475569;
+            margin-right: 0.5rem;
+        }
+        
+        .dark .value-box strong {
+            color: #94a3b8;
+        }
+
+        #gamutContainer {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        /* 隱藏/顯示按鈕圖示 */
+        .dark #theme-toggle-light-icon {
+            display: block;
+        }
+        .dark #theme-toggle-dark-icon {
+            display: none;
+        }
+        #theme-toggle-light-icon {
+            display: none;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 1024px) {
+            .content-wrapper {
+                flex-direction: column;
+                height: auto;
+            }
+            .left-panel, .right-panel {
+                max-width: 100%;
+                width: 100%;
+                height: 500px;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 transition-colors duration-200">
+    <div class="container">
+        <header class="mb-6 flex justify-between items-center relative">
+            <div class="text-center w-full">
+                <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100 transition-colors duration-200">CMYK 圖像取色與色域圖</h1>
+                <p class="text-gray-600 dark:text-gray-400 mt-2 transition-colors duration-200">上傳圖片，點選像素以查看顏色資訊，並在右側 3D 色域圖中尋找對應位置。</p>
+            </div>
+            
+            <!-- Theme Toggle Button -->
+            <button id="theme-toggle" type="button" class="absolute right-0 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-700 rounded-lg text-sm p-2.5 transition-colors duration-200">
+                <svg id="theme-toggle-dark-icon" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path></svg>
+                <svg id="theme-toggle-light-icon" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path></svg>
+            </button>
+        </header>
+
+        <div class="content-wrapper">
+            <!-- Left Panel: Image Upload and Picker -->
+            <div class="panel left-panel bg-white dark:bg-gray-800 border dark:border-gray-700 transition-colors duration-200">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold text-gray-700 dark:text-gray-200 transition-colors duration-200">圖片取色</h2>
+                    <label for="imageUpload" class="cursor-pointer bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white py-2 px-4 rounded-md transition duration-200 ease-in-out text-sm font-medium shadow-sm">上傳圖片
+                    </label>
+                    <input type="file" id="imageUpload" accept="image/*" class="hidden">
+                </div>
+
+                <div class="canvas-container border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 transition-colors duration-200" id="canvasWrapper">
+                    <div id="gamutOverlay" class="absolute top-4 left-4 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm text-sm font-bold text-gray-700 dark:text-gray-300 pointer-events-none border border-gray-200 dark:border-gray-700 z-10 transition-opacity">
+                        預設 2D 色域圖 (請點擊取色)
+                    </div>
+                    <canvas id="imageCanvas"></canvas>
+                </div>
+
+                <div class="color-info-card bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 transition-colors duration-200">
+                    <div class="color-preview border-slate-300 dark:border-slate-600" id="colorPreview"></div>
+                    <div class="color-values">
+                        <div class="value-box bg-white dark:bg-gray-900 border-slate-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 transition-colors duration-200"><strong>HEX:</strong> <span id="valHex">#FFFFFF</span></div>
+                        <div class="value-box bg-white dark:bg-gray-900 border-slate-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 transition-colors duration-200"><strong>RGB:</strong> <span id="valRgb">255, 255, 255</span></div>
+                        <div class="value-box col-span-2 bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-gray-800 dark:text-gray-200 transition-colors duration-200">
+                            <strong>CMYK:</strong> <span id="valCmyk" class="font-bold text-blue-800 dark:text-blue-400">0%, 0%, 0%, 0%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: 3D Gamut Visualization -->
+            <div class="panel right-panel bg-white dark:bg-gray-800 border dark:border-gray-700 transition-colors duration-200">
+                <h2 class="text-xl font-semibold text-gray-700 dark:text-gray-200 mb-4 transition-colors duration-200">CMYK 色域視覺化</h2>
+                <div id="gamutContainer"></div>
+                <div class="absolute bottom-6 left-6 right-6 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm p-3 rounded-md border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 shadow-sm transition-colors duration-200">
+                    <p><strong>操作提示：</strong> 滑鼠左鍵拖曳旋轉，右鍵平移，滾輪縮放。</p>
+                    <p class="mt-1">色域圖以 CMY 為三軸建立。黑色的球體代表您目前在圖片上選取的顏色位置。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const imageUpload = document.getElementById('imageUpload');
+        const canvas = document.getElementById('imageCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const canvasWrapper = document.getElementById('canvasWrapper');
+        const gamutOverlay = document.getElementById('gamutOverlay');
+        const colorPreview = document.getElementById('colorPreview');
+        const valHex = document.getElementById('valHex');
+        const valRgb = document.getElementById('valRgb');
+        const valCmyk = document.getElementById('valCmyk');
+        
+        // Image State
+        let currentImage = new Image();
+        let isImageLoaded = false;
+
+        // Color Conversion Functions
+        function rgbToCmyk(r, g, b) {
+            let c = 1 - (r / 255);
+            let m = 1 - (g / 255);
+            let y = 1 - (b / 255);
+            let k = Math.min(c, Math.min(m, y));
+            
+            if (k === 1) {
+                return { c: 0, m: 0, y: 0, k: 1 };
+            }
+            
+            c = (c - k) / (1 - k);
+            m = (m - k) / (1 - k);
+            y = (y - k) / (1 - k);
+            
+            return { c, m, y, k };
+        }
+
+        function rgbToHex(r, g, b) {
+            return "#" + (1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1).toUpperCase();
+        }
+
+        function formatCmyk(cmyk) {
+            const fc = Math.round(cmyk.c * 100);
+            const fm = Math.round(cmyk.m * 100);
+            const fy = Math.round(cmyk.y * 100);
+            const fk = Math.round(cmyk.k * 100);
+            return `${fc}%, ${fm}%, ${fy}%, ${fk}%`;
+        }
+
+        // Image Upload Handler
+        imageUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                currentImage.onload = function() {
+                    isImageLoaded = true;
+                    if(gamutOverlay) gamutOverlay.style.display = 'none';
+                    drawImageOnCanvas();
+                }
+                currentImage.src = event.target.result;
+            }
+            reader.readAsDataURL(file);
+        });
+
+        // 繪製預設的 2D 色域圖 (當沒有圖片時顯示)
+        function drawDefaultGamut() {
+            const wrapperWidth = canvasWrapper.clientWidth;
+            const wrapperHeight = canvasWrapper.clientHeight;
+            canvas.width = wrapperWidth;
+            canvas.height = wrapperHeight;
+
+            // 繪製全彩頻譜漸層 (模擬 CMYK/RGB 色彩空間的 2D 投影)
+            for (let x = 0; x < canvas.width; x++) {
+                // X 軸控制色相 (Hue)
+                let hue = (x / canvas.width) * 360;
+                let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                
+                // Y 軸控制亮度/飽和 (白 -> 純色 -> 黑)
+                grad.addColorStop(0, '#ffffff'); // C=0, M=0, Y=0 (純白)
+                grad.addColorStop(0.5, `hsl(${hue}, 100%, 50%)`); // 純色相
+                grad.addColorStop(1, '#000000'); // K=1 (純黑)
+                
+                ctx.fillStyle = grad;
+                ctx.fillRect(x, 0, 1, canvas.height);
+            }
+        }
+
+        // Function to fit image into canvas while maintaining aspect ratio
+        function drawImageOnCanvas() {
+            if (!isImageLoaded) {
+                drawDefaultGamut();
+                return;
+            }
+            
+            const wrapperWidth = canvasWrapper.clientWidth;
+            const wrapperHeight = canvasWrapper.clientHeight;
+            
+            // Calculate scale to fit within wrapper
+            const scale = Math.min(
+                wrapperWidth / currentImage.width,
+                wrapperHeight / currentImage.height
+            );
+
+            // Set canvas size to match the scaled image exactly
+            // or use max width/height if smaller
+            const finalWidth = Math.min(currentImage.width, wrapperWidth);
+            const finalHeight = Math.min(currentImage.height, wrapperHeight);
+            
+            // We want the canvas' internal resolution to match the displayed size
+            // for accurate pixel picking
+            const displayWidth = currentImage.width * scale;
+            const displayHeight = currentImage.height * scale;
+            
+            canvas.width = displayWidth;
+            canvas.height = displayHeight;
+
+            // Draw image scaled to canvas size
+            ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+        }
+
+        // Handle window resize to re-draw canvas
+        window.addEventListener('resize', () => {
+            drawImageOnCanvas();
+            if (camera && renderer && gamutContainer) {
+                camera.aspect = gamutContainer.clientWidth / gamutContainer.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(gamutContainer.clientWidth, gamutContainer.clientHeight);
+            }
+        });
+
+        // Pixel Picker Logic
+        function handleCanvasClick(e) {
+            // Get click coordinates relative to canvas
+            const rect = canvas.getBoundingClientRect();
+            
+            // Calculate exact pixel position considering scaling
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const x = Math.round((e.clientX - rect.left) * scaleX);
+            const y = Math.round((e.clientY - rect.top) * scaleY);
+
+            // Ensure coordinates are within bounds
+            if (x >= 0 && x < canvas.width && y >= 0 && y < canvas.height) {
+                const pixel = ctx.getImageData(x, y, 1, 1).data;
+                const r = pixel[0];
+                const g = pixel[1];
+                const b = pixel[2];
+                const a = pixel[3];
+                
+                // If transparent, treat as white or ignore depending on preference. 
+                // Let's use actual color if alpha > 0, else white
+                if(a > 0) {
+                    updateColorDisplay(r, g, b);
+                } else {
+                    updateColorDisplay(255, 255, 255);
+                }
+            }
+        }
+
+        // Add mouse move for real-time preview (optional, but good UX)
+        // Let's stick to click to set the color, and update gamut marker
+        canvas.addEventListener('click', handleCanvasClick);
+        
+        let isDragging = false;
+        canvas.addEventListener('mousedown', () => isDragging = true);
+        window.addEventListener('mouseup', () => isDragging = false);
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) handleCanvasClick(e);
+        });
+
+        function updateColorDisplay(r, g, b) {
+            const hex = rgbToHex(r, g, b);
+            const cmyk = rgbToCmyk(r, g, b);
+
+            // Update UI
+            colorPreview.style.backgroundColor = hex;
+            valHex.textContent = hex;
+            valRgb.textContent = `${r}, ${g}, ${b}`;
+            valCmyk.textContent = formatCmyk(cmyk);
+
+            // Update 3D Gamut marker
+            updateGamutMarker(cmyk, r, g, b);
+        }
+
+        // --- 3D Gamut Setup (Three.js) ---
+        const gamutContainer = document.getElementById('gamutContainer');
+        let scene, camera, renderer, controls;
+        let selectedColorMarker;
+        let gamutParticles;
+
+        // --- Theme Handling ---
+        const themeToggleBtn = document.getElementById('theme-toggle');
+        const htmlElement = document.documentElement;
+        
+        // 檢查系統偏好或本地儲存的主題
+        function initTheme() {
+            if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                htmlElement.classList.add('dark');
+            } else {
+                htmlElement.classList.remove('dark');
+            }
+            update3DSceneBackground();
+        }
+
+        // 切換主題按鈕事件
+        themeToggleBtn.addEventListener('click', function() {
+            if (htmlElement.classList.contains('dark')) {
+                htmlElement.classList.remove('dark');
+                localStorage.setItem('color-theme', 'light');
+            } else {
+                htmlElement.classList.add('dark');
+                localStorage.setItem('color-theme', 'dark');
+            }
+            update3DSceneBackground();
+        });
+        
+        // 更新 3D 場景背景色以配合主題
+        function update3DSceneBackground() {
+            if (!scene) return;
+            if (htmlElement.classList.contains('dark')) {
+                scene.background = new THREE.Color(0x1f2937); // Tailwind gray-800
+            } else {
+                scene.background = new THREE.Color(0xf1f5f9); // Tailwind slate-100
+            }
+        }
+
+        // 監聽系統主題變更
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+            if (!localStorage.getItem('color-theme')) {
+                if (e.matches) {
+                    htmlElement.classList.add('dark');
+                } else {
+                    htmlElement.classList.remove('dark');
+                }
+                update3DSceneBackground();
+            }
+        });
+
+        function init3D() {
+            scene = new THREE.Scene();
+            // 背景色由 initTheme / update3DSceneBackground 控制
+
+            const width = gamutContainer.clientWidth;
+            const height = gamutContainer.clientHeight;
+
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            camera.position.set(2, 2, 2.5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width, height);
+            gamutContainer.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(0.5, 0.5, 0.5); // Look at center of color cube
+
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(5, 10, 5);
+            scene.add(dirLight);
+
+            createAxes();
+            createGamutPointCloud();
+            createSelectedMarker();
+
+            animate();
+        }
+
+        function createAxes() {
+            // Create axes for CMY (Cyan, Magenta, Yellow)
+            // C = X, M = Y, Y = Z
+            const axesHelper = new THREE.AxesHelper(1.2);
+            
+            // Re-color axes to match CMY (default is RGB)
+            const colors = axesHelper.geometry.attributes.color;
+            // X axis (Red default) -> Cyan
+            colors.setXYZ(0, 0, 1, 1);
+            colors.setXYZ(1, 0, 1, 1);
+            // Y axis (Green default) -> Magenta
+            colors.setXYZ(2, 1, 0, 1);
+            colors.setXYZ(3, 1, 0, 1);
+            // Z axis (Blue default) -> Yellow
+            colors.setXYZ(4, 1, 1, 0);
+            colors.setXYZ(5, 1, 1, 0);
+            
+            scene.add(axesHelper);
+
+            // Add Labels (simple text sprites would be better, but basic shapes for now to avoid loading fonts)
+            // Just outline the cube
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const material = new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.3 });
+            const edges = new THREE.EdgesGeometry(geometry);
+            const line = new THREE.LineSegments(edges, material);
+            line.position.set(0.5, 0.5, 0.5); // Move so origin is 0,0,0
+            scene.add(line);
+        }
+
+        function createGamutPointCloud() {
+            // Generate points representing the CMY gamut
+            const step = 0.1; // Density of points
+            const points = [];
+            const colors = [];
+
+            // We loop through CMY values (0 to 1)
+            for (let c = 0; c <= 1.01; c += step) {
+                for (let m = 0; m <= 1.01; m += step) {
+                    for (let y = 0; y <= 1.01; y += step) {
+                        // Plot in 3D space: X=Cyan, Y=Magenta, Z=Yellow
+                        points.push(c, m, y);
+
+                        // Convert CMY to RGB for display color of the point
+                        // Simplifying K=0 for the cloud representation
+                        const r = (1 - c);
+                        const g = (1 - m);
+                        const b = (1 - y);
+                        colors.push(r, g, b);
+                    }
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+            // Create particle material
+            const material = new THREE.PointsMaterial({
+                size: 0.03,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.4
+            });
+
+            gamutParticles = new THREE.Points(geometry, material);
+            scene.add(gamutParticles);
+        }
+
+        function createSelectedMarker() {
+            // A sphere to represent the picked color
+            const geometry = new THREE.SphereGeometry(0.04, 32, 32);
+            // Initial material is black, will be updated
+            const material = new THREE.MeshPhongMaterial({ 
+                color: 0x000000, 
+                emissive: 0x222222,
+                specular: 0xffffff, 
+                shininess: 100 
+            });
+            selectedColorMarker = new THREE.Mesh(geometry, material);
+            
+            // Add a subtle halo to make it stand out
+            const haloGeo = new THREE.SphereGeometry(0.06, 16, 16);
+            const haloMat = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.5,
+                wireframe: true
+            });
+            const halo = new THREE.Mesh(haloGeo, haloMat);
+            selectedColorMarker.add(halo);
+
+            // Initially hide it until a color is picked
+            selectedColorMarker.visible = false;
+            scene.add(selectedColorMarker);
+        }
+
+        function updateGamutMarker(cmyk, r, g, b) {
+            if (!selectedColorMarker) return;
+
+            // Position the marker based on C, M, Y values (0 to 1)
+            // X = Cyan, Y = Magenta, Z = Yellow
+            selectedColorMarker.position.set(cmyk.c, cmyk.m, cmyk.y);
+            
+            // Update the marker's color to the actual RGB color picked
+            // (Note: The position is CMY, but the display color shows the final resulting color including K)
+            selectedColorMarker.material.color.setRGB(r/255, g/255, b/255);
+            selectedColorMarker.visible = true;
+
+            // Optional: Animate scale briefly to show update
+            selectedColorMarker.scale.set(1.5, 1.5, 1.5);
+            setTimeout(() => {
+                if(selectedColorMarker) selectedColorMarker.scale.set(1, 1, 1);
+            }, 150);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // required if controls.enableDamping or controls.autoRotate are set
+            
+            // Optional: slowly rotate the gamut if no interaction
+            // scene.rotation.y += 0.001;
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize 3D scene on load
+        window.onload = function() {
+            // 初始化佈景主題
+            initTheme();
+            
+            // 初始繪製預設色域圖
+            drawDefaultGamut();
+
+            // Need a slight delay to ensure containers have dimensions in some browsers
+            setTimeout(() => {
+                init3D();
+                
+                // 設定一個初始的選取顏色 (例如：灰色)
+                updateColorDisplay(128, 128, 128);
+                
+                // 確保 3D 背景色正確
+                update3DSceneBackground();
+            }, 100);
+        };
+    </script>
+</body>
+</html>
